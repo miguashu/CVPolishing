@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>注册 - CVPolishing</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <style>
+    .login-body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background:
+        radial-gradient(900px 500px at 12% 18%, rgba(79,140,255,.22), transparent 60%),
+        radial-gradient(800px 480px at 88% 82%, rgba(54,194,166,.18), transparent 60%),
+        linear-gradient(135deg, #0c1424 0%, #101a30 45%, #0c1424 100%);
+      overflow: hidden;
+      position: relative;
+    }
+    .login-body::before,
+    .login-body::after {
+      content: "";
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(70px);
+      opacity: .5;
+      pointer-events: none;
+    }
+    .login-body::before {
+      width: 360px; height: 360px;
+      background: radial-gradient(circle, rgba(79,140,255,.55), transparent 70%);
+      top: -90px; left: -70px;
+    }
+    .login-body::after {
+      width: 420px; height: 420px;
+      background: radial-gradient(circle, rgba(54,194,166,.45), transparent 70%);
+      bottom: -120px; right: -90px;
+    }
+
+    .login-shell {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 1.05fr .95fr;
+      width: min(900px, 92vw);
+      min-height: 520px;
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 30px 80px rgba(0,0,0,.45);
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(20,30,52,.55);
+      backdrop-filter: blur(18px);
+    }
+
+    .login-hero {
+      padding: 46px 44px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      background: linear-gradient(160deg, rgba(79,140,255,.18), rgba(54,194,166,.10));
+      border-right: 1px solid rgba(255,255,255,.06);
+    }
+    .brand-mark {
+      display: flex; align-items: center; gap: 12px;
+    }
+    .brand-logo {
+      width: 42px; height: 42px; border-radius: 12px;
+      display: grid; place-items: center;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      font-weight: 800; font-size: 20px; color: #fff;
+      box-shadow: 0 8px 20px rgba(79,140,255,.4);
+    }
+    .brand-name { font-size: 20px; font-weight: 700; letter-spacing: .5px; }
+    .brand-sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
+
+    .hero-title { font-size: 30px; line-height: 1.35; font-weight: 700; margin-top: 28px; }
+    .hero-title .hl { background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .hero-desc { color: var(--muted); font-size: 14px; line-height: 1.9; margin-top: 14px; }
+    .hero-foot { color: var(--muted); font-size: 12px; opacity: .8; }
+
+    .login-card {
+      padding: 46px 44px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .login-card h1 { font-size: 22px; margin: 0 0 6px; }
+    .login-card .tip { color: var(--muted); font-size: 13px; margin-bottom: 26px; }
+
+    .login-field { position: relative; margin-bottom: 18px; }
+    .login-field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 7px; }
+    .login-field input {
+      width: 100%;
+      padding: 13px 14px;
+      background: rgba(13,21,38,.7);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+      transition: border-color .18s ease, box-shadow .18s ease;
+    }
+    .login-field input::placeholder { color: rgba(147,164,195,.6); }
+    .login-field input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(79,140,255,.18);
+    }
+
+    .login-btn {
+      width: 100%;
+      margin-top: 8px;
+      padding: 13px;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+      cursor: pointer;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      box-shadow: 0 10px 24px rgba(79,140,255,.32);
+      transition: transform .12s ease, box-shadow .18s ease, opacity .18s ease;
+    }
+    .login-btn:hover { transform: translateY(-1px); box-shadow: 0 14px 30px rgba(79,140,255,.42); }
+    .login-btn:active { transform: translateY(0); }
+    .login-btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+
+    .login-err {
+      color: var(--danger);
+      font-size: 13px;
+      min-height: 18px;
+      margin-top: 12px;
+      text-align: center;
+    }
+
+    .login-switch {
+      margin-top: 18px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .login-switch a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .login-switch a:hover { text-decoration: underline; }
+
+    @media (max-width: 720px) {
+      .login-shell { grid-template-columns: 1fr; min-height: auto; }
+      .login-hero { display: none; }
+      .login-card { padding: 40px 30px; }
+    }
+  </style>
+</head>
+<body class="login-body">
+  <div class="login-shell">
+    <aside class="login-hero">
+      <div class="brand-mark">
+        <div class="brand-logo">C</div>
+        <div>
+          <div class="brand-name">CVPolishing</div>
+          <div class="brand-sub">AI 简历精修 · 智能面试</div>
+        </div>
+      </div>
+      <div>
+        <div class="hero-title">创建账号<br /><span class="hl">开启求职加速</span></div>
+        <div class="hero-desc">
+          联网检索 · 多轮智能迭代优化 · 评分诊断<br />
+          面试问答生成 · 知识库沉淀，一站式求职助手。
+        </div>
+      </div>
+      <div class="hero-foot">注册即享基础 AI 能力</div>
+    </aside>
+
+    <section class="login-card">
+      <h1>注册新账号</h1>
+      <div class="tip">填写账号与密码，立即创建</div>
+      <form id="registerForm" autocomplete="off">
+        <div class="login-field">
+          <label for="username">账号</label>
+          <input id="username" type="text" autocomplete="username" placeholder="2-32 位字母/数字/下划线" />
+        </div>
+        <div class="login-field">
+          <label for="password">密码</label>
+          <input id="password" type="password" autocomplete="new-password" placeholder="至少 6 位" />
+        </div>
+        <div class="login-field">
+          <label for="confirm">确认密码</label>
+          <input id="confirm" type="password" autocomplete="new-password" placeholder="再次输入密码" />
+        </div>
+        <button type="submit" class="login-btn" id="registerBtn">注 册</button>
+        <div id="registerErr" class="login-err"></div>
+      </form>
+      <div class="login-switch">
+        已有账号？<a href="/login">返回登录</a>
+      </div>
+    </section>
+  </div>
+  <script src="/static/register.js"></script>
+</body>
+</html>

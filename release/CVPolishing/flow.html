@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>流程可视化 · JD 匹配简历优化器</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">流程可视化</div>
+    <div class="sub">CVPolishing 多 Agent 协作流程 · 自动沉淀长期记忆</div>
+    <nav class="nav">
+      <a href="/" class="nav-link">简历优化</a>
+      <a href="/interview" class="nav-link">面试模拟</a>
+      <a href="/prompts" class="nav-link">提示词配置</a>
+      <a href="/flow" class="nav-link active">流程可视化</a>
+      <a href="/admin" class="nav-link" id="navAdmin">后台系统</a>
+    </nav>
+  </header>
+
+  <main class="flow-layout">
+    <section class="flow-card">
+      <h2>整体流程（流程图）</h2>
+      <p class="flow-desc">从「简历 + JD」输入，到优化 / 评分 / 对比 / 面试模拟，再到追问与新增问答自动沉淀进长期记忆库，记忆再回灌给追问与出题。</p>
+      <pre class="mermaid">
+graph TD
+  A["用户：输入 简历 + 目标岗位 JD"] --> B["简历优化 Agent"]
+  B --> C["优化后简历"]
+  C --> D["优化评分 Agent"]
+  C --> E["优化对比 Agent（同步进行优化评分对比）"]
+  C --> O["智能迭代优化闭环（达标 90 分）"]
+  O --> TH["思考诊断 Agent（观察薄弱点）"]
+  O --> RF2["细节优化 Agent（按评分精修·保护关键内容）"]
+  O --> SP["监督/结果 Agent（达标判定 + 安全检查）"]
+  O --> D
+  O -.->|链路追踪| LSM["LangSmith 链路日志"]
+  C --> F["面试生成 Agent：先查长期记忆去重 → 联网最新资料 → 生成深入题"]
+  F --> G["长期记忆库"]
+  F --> H["问我 Agent：自由提问 / 单题追问"]
+  H --> I["答案提炼 Agent：精简回答"]
+  I --> G
+  J["新增面试题 / 新增记忆问答"] --> K["答案生成 Agent"]
+  K --> G
+  L["TXT 文件导入（问我页）"] --> M["文件解析导入 Agent"]
+  M --> G
+  G -.->|语义召回| H
+  G -.->|语义召回| F
+  P["提示词配置页"] -. 实时编辑 .-> B
+  P -.-> D
+  P -.-> E
+  P -.-> F
+  P -.-> H
+  P -.-> I
+  P -.-> K
+  P -.-> M
+      </pre>
+    </section>
+
+    <section class="flow-card">
+      <h2>面试生成去重 + 联网 + 入库（时序图）</h2>
+      <p class="flow-desc">先规划候选主题 → 逐条语义检索长期记忆：命中相似的直接复用、不计入生成条数；未命中的结合联网最新资料生成更深入的题目，并逐条写入长期记忆库。</p>
+      <pre class="mermaid">
+sequenceDiagram
+  participant U as 用户
+  participant FE as 前端
+  participant API as /api/interview/generate
+  participant PL as 主题规划 Agent
+  participant MEM as 长期记忆库
+  participant WEB as 联网检索
+  participant IV as 面试生成 Agent
+  U->>FE: 点击生成面试题(启用联网/自动入库)
+  FE->>API: resume + jd + count
+  API->>PL: 提炼 count 个候选主题
+  PL-->>API: 主题清单
+  loop 每个候选主题
+    API->>MEM: 语义检索相似问题(score)
+    alt 命中相似(score≥阈值)
+      MEM-->>FE: reused 事件(复用已有，不生成)
+    else 未命中
+      MEM-->>API: 无相似
+    end
+  end
+  opt 启用联网
+    API->>WEB: 按岗位名检索最新资料
+    WEB-->>API: 行业最新上下文
+  end
+  API->>IV: 候选主题 + 复用素材 + 联网资料
+  IV-->>FE: 流式题目(delta)
+  loop 每道新题(auto_save)
+    API->>MEM: put(问题, 答案)
+    MEM-->>FE: saved 事件(已入库)
+  end
+  MEM-->>FE: result 事件(新生成 + 复用条数)
+      </pre>
+    </section>
+
+    <section class="flow-card">
+      <h2>「问我」自动提炼入库（时序图）</h2>
+      <p class="flow-desc">用户自由提问 → 答疑 Agent 流式回答 → 答案提炼 Agent 自动精简 → 写入长期记忆库并回传 saved 事件。</p>
+      <pre class="mermaid">
+sequenceDiagram
+  participant U as 用户
+  participant FE as 前端
+  participant API as /api/interview/ask
+  participant MEM as 长期记忆库
+  participant QA as 答疑 Agent
+  participant RF as 答案提炼 Agent
+  U->>FE: 输入问题并发送(auto_memory)
+  FE->>API: question + user_question
+  API->>MEM: 语义检索相关记忆
+  MEM-->>API: memory_context
+  API->>QA: 系统提示词 + 问题 + 记忆上下文
+  QA-->>FE: 流式回答(delta)
+  API->>RF: 完整回答
+  RF-->>MEM: 精炼答案(put)
+  MEM-->>FE: saved 事件(已入库)
+      </pre>
+    </section>
+
+    <section class="flow-card">
+      <h2>新增问答 AI 生成答案（时序图）</h2>
+      <p class="flow-desc">在「长期记忆 - 新增问答」或「面试题 - 手动添加」输入问题，答案生成 Agent 结合简历 + JD 生成标准答案，编辑后保存进记忆库。</p>
+      <pre class="mermaid">
+sequenceDiagram
+  participant U as 用户
+  participant FE as 前端
+  participant API as /api/generate-answer
+  participant GA as 答案生成 Agent
+  participant MEM as 长期记忆库
+  U->>FE: 输入问题(面试题 / 记忆问答)
+  FE->>API: question + resume + jd
+  API->>GA: 生成标准答案
+  GA-->>FE: 流式答案(delta)
+  U->>FE: 编辑后点保存
+  FE->>MEM: POST /api/memory
+  MEM-->>FE: 已保存
+      </pre>
+    </section>
+
+    <section class="flow-card">
+      <h2>TXT 文件导入解析（时序图）</h2>
+      <p class="flow-desc">在「问我」页上传 .txt → 前端读取文本 → 文件解析导入 Agent 整理为问答 JSON → 逐条写入长期记忆库并回传 saved 事件。</p>
+      <pre class="mermaid">
+sequenceDiagram
+  participant U as 用户
+  participant FE as 前端
+  participant API as /api/interview/parse-file
+  participant PF as 文件解析导入 Agent
+  participant MEM as 长期记忆库
+  U->>FE: 选择 TXT 文件并点击解析
+  FE->>FE: FileReader 读取文本
+  FE->>API: content(txt 文本)
+  API->>PF: 系统提示词 + 待解析文本
+  PF-->>FE: 流式 JSON(delta)
+  PF-->>API: 问答条目数组 [{key,answer,extra}]
+  loop 逐条
+    API->>MEM: put(key, answer, extra)
+    MEM-->>FE: saved 事件(第 i 条已入库)
+  end
+  MEM-->>FE: done 事件(导入完成)
+      </pre>
+    </section>
+
+    <section class="flow-card">
+      <h2>智能迭代优化闭环（时序图）</h2>
+      <p class="flow-desc">初始优化 → 评分 → 思考诊断 Agent 找薄弱点 → 细节优化 Agent 按评分精修（不改关键内容）→ 评分 → 监督 / 结果 Agent 判定达标与安全检查，循环直到达标 90 分 / 达上限 / 安全未通过 / 连续无提升（防死循环）；全链路记入 LangSmith 日志并在前端量化可视化。</p>
+      <pre class="mermaid">
+sequenceDiagram
+  participant U as 用户
+  participant FE as 前端
+  participant API as 自动迭代接口
+  participant TRC as 链路追踪
+  participant OA as 优化Agent
+  participant SC as 评分Agent
+  participant TH as 思考诊断Agent
+  participant RF as 细节优化Agent
+  participant SP as 监督结果Agent
+  participant LSM as LangSmith
+
+  U->>FE: 填写简历和JD，上传JD图片识别
+  FE->>API: resume + jd + target_score
+
+  opt 启用联网
+    API->>TRC: 联网检索JD最新资料
+  end
+
+  loop 每轮迭代，上限max_iter
+    API->>OA: 第1轮完整优化，之后按评分精修
+    OA-->>FE: 流式简历 + iteration_result
+    API->>TRC: step optimize-refine
+    API->>SC: 对当前简历评分
+    SC-->>FE: score事件 总分+维度分
+    API->>TRC: step score
+    API->>TH: 评分明细 + 简历 + JD
+    TH-->>FE: think事件 薄弱维度+问题+指引
+    API->>TRC: step think
+    API->>SP: 评分 + 轮次 + 优化说明 + 指引
+    SP-->>FE: supervise事件 decision+safe+reason
+    API->>TRC: step supervise
+    alt 达标或安全未通过或达上限或连续无提升
+      SP-->>API: decision=stop
+    else 继续迭代
+      SP-->>API: decision=continue
+      API->>RF: 当前简历 + 评分 + 思考指引
+      RF-->>FE: 下一轮精修简历
+    end
+  end
+
+  API->>TRC: finish 落盘JSONL
+  API-->>FE: result事件 最终简历+迭代历史+trace_id
+  FE->>FE: 渲染分数曲线和时间线
+  TRC-.->>LSM: 可选上报LangSmith链路日志
+      </pre>
+    </section>
+  </main>
+
+  <script src="/static/user.js"></script>
+  <script src="/static/flow.js"></script>
+  <script src="/static/zoom.js"></script>
+</body>
+</html>

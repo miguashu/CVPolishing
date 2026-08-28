@@ -1,0 +1,31 @@
+# 密钥与本地配置
+.env
+
+# 日志
+*.log
+*.err
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 本地数据与向量库（体积大且含隐私，不提交）
+storage/
+data/
+snapshots/
+
+# 运行时工具
+cloudflared.exe
+
+# Node 依赖
+node_modules/
+
+# IDE / 编辑器
+.idea/
+.vscode/
+*.code-workspace
+
+# 系统文件
+Thumbs.db
+.DS_Store
+$null

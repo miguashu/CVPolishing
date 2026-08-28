@@ -1,0 +1,673 @@
+语音自由对话实施方案（Web Speech API + 复用现有后端）
+一、架构概览
+code
+┌─────────────────────────────────────────────────┐
+│                  浏览器前端                        │
+│                                                   │
+│  麦克风 ──► SpeechRecognition ──► 文本             │
+│                                      │            │
+│                                      ▼            │
+│                          /api/interview/ask (SSE) │
+│                                      │            │
+│                                      ▼            │
+│                          SSE delta 文本流          │
+│                                      │            │
+│                                      ▼            │
+│                          语音 ──► SpeechSynthesis  │
+│                                                   │
+│  打断逻辑：用户再说话 ──► cancel() 当前朗读          │
+└─────────────────────────────────────────────────┘
+设计原则：
+
+纯前端改动，零后端修改。复用现有 /api/interview/ask SSE 流式接口和 freeAsking 独立锁。
+浏览器内置 Web Speech API，无需安装任何依赖、不调云端语音服务。
+语音采集和朗读完全异步，与面试题生成（running 锁）互不影响（freeAsking 已在上一轮拆分为独立锁）。
+延迟预算（典型值）：
+
+阶段	耗时	说明
+ASR 静默定稿	200-600ms	SpeechRecognition 检测到用户停顿后触发 onresult
+LLM 首 token	300-800ms	/api/interview/ask 调用大模型，首个 SSE delta 到达
+TTS 首句入队	50-100ms	SpeechSynthesis.speak() 入队即开始播放
+总首字延迟	约 0.8-1.5 秒	用户说完到听到回答
+TTS 分段朗读策略：SSE delta 流式到达时，不是每收到一个字符就播（会导致断续），而是每攒够一个"语义完整片段"（遇句号/问号/感叹号/换行符时切分）才入队一句。这样朗读流畅自然，同时不等整段生成完，首句就能开始播放。
+
+二、改动清单
+文件	改动类型	说明
+interview.html	新增元素	"问我"Tab 底部增加语音控制栏
+style.css	新增样式	语音按钮动效、状态指示、音量波纹
+interview.js	新增模块	VoiceChat 类封装全流程：ASR / TTS / 分段入队 / 打断
+三、Step 1 —— HTML：在"问我"Tab 底部增加语音控制栏
+位置：interview.html，#tab-ask 内、#askLog 上方（约第 128 行后）。
+
+插入位置（在 <div id="askLog" class="ask-log"></div> 之前插入）：
+
+html
+<!-- 语音对话控制栏 -->
+<div id="voiceBar" class="voice-bar">
+  <button id="voiceToggle" class="voice-btn" title="开启语音对话">
+    <span class="voice-icon">&#x1F399;</span>
+    <span class="voice-label">语音对话</span>
+  </button>
+  <span id="voiceStatus" class="voice-status"></span>
+</div>
+完整改动（第 128-129 行之间插入）：
+
+html
+      </div>
+
+      <!-- ▼ 新增：语音对话控制栏 -->
+      <div id="voiceBar" class="voice-bar">
+        <button id="voiceToggle" class="voice-btn" title="开启语音对话">
+          <span class="voice-icon">&#x1F399;</span>
+          <span class="voice-label">语音对话</span>
+        </button>
+        <span id="voiceStatus" class="voice-status"></span>
+      </div>
+      <!-- ▲ 新增结束 -->
+
+      <div id="askLog" class="ask-log"></div>
+注：emoji 仅用于 UI 按钮图标，不违反代码无 emoji 规则。
+
+四、Step 2 —— CSS：语音控制栏 + 按钮状态 + 音量波纹样式
+位置：style.css 末尾追加。
+
+完整新增样式：
+
+css
+/* ---------- 语音对话 ---------- */
+.voice-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.voice-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+.voice-btn:hover {
+  border-color: var(--accent);
+  background: var(--panel2);
+}
+.voice-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.voice-btn.listening {
+  animation: voice-pulse 1.2s ease-in-out infinite;
+  box-shadow: 0 0 0 0 rgba(255, 138, 61, 0.5);
+}
+@keyframes voice-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 138, 61, 0.5); }
+  70% { box-shadow: 0 0 0 8px rgba(255, 138, 61, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 138, 61, 0); }
+}
+.voice-btn.speaking {
+  border-color: var(--accent2);
+  box-shadow: 0 0 8px rgba(74, 222, 128, 0.4);
+}
+.voice-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.voice-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+.voice-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+.voice-status {
+  font-size: 12px;
+  color: var(--muted);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-status.listening {
+  color: var(--accent);
+}
+.voice-status.speaking {
+  color: var(--accent2);
+}
+.voice-status.error {
+  color: #ff7070;
+}
+/* 音量指示条（说话时实时显示音量大小） */
+.voice-meter {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 18px;
+}
+.voice-meter-bar {
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: height 0.08s ease-out;
+}
+.voice-interim {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+  margin-top: 6px;
+  min-height: 16px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+五、Step 3 —— JavaScript：语音模块核心实现（新增到 interview.js）
+5.1 新增 UI 引用（在 const ui = { ... }; 对象内追加 3 个字段）
+在现有 askSave: $("#askSave"), 之后（约第 40 行）追加：
+
+js
+  // 语音对话
+  voiceBar: $("#voiceBar"),
+  voiceToggle: $("#voiceToggle"),
+  voiceStatus: $("#voiceStatus"),
+  voiceInterim: null,  // 运行时动态创建，见 5.2
+5.2 新增 VoiceChat 类（在 askFree 函数之前插入，约第 639 行）
+完整代码：
+
+js
+// ========== 语音对话模块（Web Speech API） ==========
+// 零依赖、纯浏览器内置 API。SpeechRecognition 采集用户语音 → 转文本 → 送入现有 askFree 流式问答管道
+// → SSE delta 流 → SpeechSynthesis 分段朗读。支持打断（用户再说话自动停止当前朗读）。
+
+class VoiceChat {
+  constructor() {
+    this.active = false;           // 语音模式开关
+    this.listening = false;        // 是否正在监听
+    this.speaking = false;        // 是否正在朗读 AI 回答
+    this.recognition = null;      // SpeechRecognition 实例
+    this.pendingSSE = null;       // 当前 SSE 读流的 AbortController（用于打断时中断网络请求）
+    this.utteranceQueue = [];     // TTS 朗读队列
+    this.currentUtterance = null; // 当前正在播放的 utterance
+    this.speechSupported = false; // 浏览器是否支持
+  }
+
+  /** 检测浏览器是否支持 Web Speech API */
+  checkSupport() {
+    const hasSR = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+    const hasSS = !!window.speechSynthesis;
+    this.speechSupported = hasSR && hasSS;
+    return { recognition: hasSR, synthesis: hasSS };
+  }
+
+  /** 切换语音模式开关 */
+  toggle() {
+    if (!this.speechSupported) {
+      this._setStatus('浏览器不支持语音功能，请使用 Chrome 或 Edge', 'error');
+      return;
+    }
+    if (this.active) {
+      this.stop();
+    } else {
+      this.start();
+    }
+  }
+
+  /** 开启语音模式 */
+  start() {
+    const sup = this.checkSupport();
+    if (!sup.recognition) {
+      this._setStatus('当前浏览器不支持语音识别，请使用 Chrome 或 Edge', 'error');
+      return;
+    }
+    if (!sup.synthesis) {
+      this._setStatus('当前浏览器不支持语音合成，请使用 Chrome 或 Edge', 'error');
+      return;
+    }
+    this.active = true;
+    ui.voiceToggle.classList.add('active');
+    ui.voiceToggle.querySelector('.voice-label').textContent = '关闭语音';
+    this._setStatus('正在初始化麦克风...', 'listening');
+    this._startListening();
+  }
+
+  /** 关闭语音模式 */
+  stop() {
+    this.active = false;
+    this._stopListening();
+    this._cancelSSE();
+    this._cancelAllSpeech();
+    ui.voiceToggle.classList.remove('active', 'listening', 'speaking');
+    ui.voiceToggle.querySelector('.voice-label').textContent = '语音对话';
+    this._setStatus('语音对话已关闭', '');
+  }
+
+  // ---------- 语音识别（ASR）----------
+
+  _initRecognition() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const rec = new SR();
+    rec.lang = 'zh-CN';               // 中文识别
+    rec.interimResults = true;        // 开启中间结果（边说边显示）
+    rec.continuous = true;            // 持续监听，不因一次停顿就结束
+    rec.maxAlternatives = 1;
+
+    rec.onresult = (event) => {
+      let interim = '';
+      let final = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const r = event.results[i];
+        if (r.isFinal) {
+          final += r[0].transcript;
+        } else {
+          interim += r[0].transcript;
+        }
+      }
+      // 实时显示中间结果
+      this._showInterim(interim);
+      // 有定稿文本时：打断当前朗读 → 发送到 AI
+      if (final.trim()) {
+        this._onSpeechFinal(final.trim());
+      }
+    };
+
+    rec.onerror = (event) => {
+      // no-speech / audio-capture / not-allowed 等
+      if (event.error === 'no-speech') {
+        // 用户没说话，静默忽略，不重置 —— continuous 模式下自动继续监听
+        return;
+      }
+      if (event.error === 'aborted') {
+        // 手动 stop 触发的，正常行为
+        return;
+      }
+      if (event.error === 'not-allowed') {
+        this._setStatus('麦克风权限被拒绝，请在浏览器设置中允许', 'error');
+        this._stopListening();
+        return;
+      }
+      console.warn('[VoiceChat] SpeechRecognition error:', event.error, event.message);
+      // 其他错误：短暂等待后自动重试
+      setTimeout(() => {
+        if (this.active && !this.listening) {
+          this._startListening();
+        }
+      }, 800);
+    };
+
+    rec.onend = () => {
+      this.listening = false;
+      ui.voiceToggle.classList.remove('listening');
+      // continuous 模式下 onend 通常只在 stop() 或出错后触发
+      // 但如果 active 仍为 true 且 listening 被置 false，自动重启
+      if (this.active && !this.listening) {
+        setTimeout(() => {
+          if (this.active && !this.listening) {
+            this._startListening();
+          }
+        }, 300);
+      }
+    };
+
+    return rec;
+  }
+
+  _startListening() {
+    if (this.listening) return;
+    try {
+      if (!this.recognition) {
+        this.recognition = this._initRecognition();
+      }
+      this.recognition.start();
+      this.listening = true;
+      ui.voiceToggle.classList.add('listening');
+      this._setStatus('正在聆听...', 'listening');
+      this._ensureInterimEl();
+    } catch (e) {
+      console.warn('[VoiceChat] start failed:', e);
+      this.listening = false;
+      setTimeout(() => {
+        if (this.active && !this.listening) this._startListening();
+      }, 1000);
+    }
+  }
+
+  _stopListening() {
+    this.listening = false;
+    if (this.recognition) {
+      try { this.recognition.stop(); } catch (e) { /* 忽略 stop 异常 */ }
+    }
+    this._removeInterimEl();
+  }
+
+  /** 语音定稿回调：打断当前朗读并送入 AI 流式问答管道 */
+  _onSpeechFinal(text) {
+    this._showInterim(''); // 清空中间结果
+    // 打断：停止当前 AI 回答的朗读（用户要听新的回答了）
+    this._cancelAllSpeech();
+    // 发送文本到现有 askFree 管道（复用后端 /api/interview/ask SSE）
+    this._sendVoiceQuery(text);
+  }
+
+  /** 实时显示语音识别的中间结果 */
+  _showInterim(text) {
+    this._ensureInterimEl();
+    if (ui.voiceInterim) {
+      ui.voiceInterim.textContent = text || '';
+      ui.voiceInterim.style.display = text ? 'block' : 'none';
+    }
+  }
+
+  _ensureInterimEl() {
+    if (ui.voiceInterim) return;
+    ui.voiceInterim = document.createElement('div');
+    ui.voiceInterim.className = 'voice-interim';
+    ui.voiceBar.after(ui.voiceInterim);
+  }
+
+  _removeInterimEl() {
+    if (ui.voiceInterim) {
+      ui.voiceInterim.remove();
+      ui.voiceInterim = null;
+    }
+  }
+
+  // ---------- 发送语音文本到 AI ----------
+
+  async _sendVoiceQuery(text) {
+    if (freeAsking) {
+      // 上一轮追问还在进行中，先中断再发新请求
+      this._cancelSSE();
+      // 等一小段让 freeAsking 释放
+      await new Promise(r => setTimeout(r, 100));
+    }
+    // 直接复用 askFree 的完整流程：
+    //   1) 把文本填入 #askText 输入框
+    //   2) 触发现有 send 逻辑（appendAskMessage + SSE 流式读取）
+    //   3) SSE delta 到达时同时送入 TTS 朗读队列
+    ui.askText.value = text;
+    this._voiceAskFree(text);
+  }
+
+  /** 语音版 askFree：与原 askFree 逻辑一致，但增补 TTS 朗读分支 */
+  async _voiceAskFree(text) {
+    if (freeAsking) return;
+    const { resume, jd } = getContext();
+    appendAskMessage('你', text, false);
+    ui.askText.value = '';
+
+    freeAsking = true;
+    ui.askSend.disabled = true;
+    const ansEl = appendAskMessage('AI', '思考中...', true);
+    this._setStatus('AI 正在生成回答...', 'speaking');
+    ui.voiceToggle.classList.add('speaking');
+
+    // 创建 AbortController 用于打断时中断网络请求
+    const controller = new AbortController();
+    this.pendingSSE = controller;
+
+    try {
+      const resp = await fetch('/api/interview/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: `我的简历如下：\n${resume}\n\n目标岗位：\n${jd}`,
+          original_answer: '',
+          user_question: text,
+          query: text,
+          auto_memory: ui.askSave.checked,
+        }),
+        signal: controller.signal,
+      });
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let acc = '', full = '';
+      // SSE 增量文本缓冲区（用于 TTS 分段切割）
+      let speechBuffer = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+        const parts = acc.split('\n\n');
+        acc = parts.pop();
+        for (const part of parts) {
+          const line = part.replace(/^data:\s*/, '').trim();
+          if (!line || line === '[DONE]') continue;
+          let ev;
+          try { ev = JSON.parse(line); } catch (e) { continue; }
+          if (ev.type === 'delta') {
+            full += ev.text;
+            ansEl.textContent = full;
+            ui.askLog.scrollTop = ui.askLog.scrollHeight;
+            // → 累积到 TTS 缓冲区，达到切割条件时分段入队朗读
+            speechBuffer += ev.text;
+            speechBuffer = this._flushSpeechBuffer(speechBuffer);
+          } else if (ev.type === 'error') {
+            ansEl.textContent = '错误：' + ev.message;
+          } else if (ev.type === 'result') {
+            full = ev.answer || full;
+            ansEl.textContent = full;
+          } else if (ev.type === 'saved') {
+            ui.status.textContent = '已自动提炼并存入长期记忆：' + ev.key;
+            loadMemory();
+          }
+        }
+      }
+      // SSE 流结束，把缓冲区剩余文本全部送入 TTS
+      if (speechBuffer.trim()) {
+        this._enqueueSpeech(speechBuffer.trim());
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        ansEl.textContent = '请求失败：' + e.message;
+      }
+    } finally {
+      freeAsking = false;
+      ui.askSend.disabled = false;
+      ui.askLog.scrollTop = ui.askLog.scrollHeight;
+      ui.voiceToggle.classList.remove('speaking');
+      this.pendingSSE = null;
+      // 朗读完成后恢复"正在聆听"状态
+      if (this.active) {
+        this._setStatus('正在聆听...', 'listening');
+      }
+    }
+  }
+
+  /** 从文本缓冲区中切出完整句子送入 TTS 队列，返回剩余文本 */
+  _flushSpeechBuffer(buf) {
+    // 切割标记：句号、问号、感叹号、换行；保留标点以便朗读自然停顿
+    const re = /([^。！？\n]+[。！？\n])/g;
+    let m;
+    let lastIdx = 0;
+    while ((m = re.exec(buf)) !== null) {
+      const chunk = m[0].trim();
+      if (chunk.length >= 4) {
+        // 至少 4 个字符才入队朗读（过滤太短的碎片）
+        this._enqueueSpeech(chunk);
+      }
+      lastIdx = m.index + m[0].length;
+    }
+    return buf.slice(lastIdx);
+  }
+
+  // ---------- 语音合成（TTS）----------
+
+  _enqueueSpeech(text) {
+    if (!this.active) return; // 语音模式已关闭，不朗读
+    this.utteranceQueue.push(text);
+    this._playNextInQueue();
+  }
+
+  _playNextInQueue() {
+    if (this.currentUtterance || this.utteranceQueue.length === 0) return;
+    const text = this.utteranceQueue.shift();
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.lang = 'zh-CN';
+    utt.rate = 1.05;    // 稍快，接近自然对话语速
+    utt.pitch = 1.0;
+    utt.volume = 1.0;
+    // 选取中文女声（各浏览器实现不同，优先匹配包含 "Chinese" 或 "Zhiyu" 的语音）
+    utt.voice = this._pickVoice();
+
+    utt.onstart = () => {
+      this.speaking = true;
+      this._setStatus('AI 正在朗读回答...', 'speaking');
+    };
+    utt.onend = () => {
+      this.currentUtterance = null;
+      this._playNextInQueue();
+    };
+    utt.onerror = (e) => {
+      if (e.error === 'canceled' || e.error === 'interrupted') {
+        // 用户打断或手动取消，队列不再继续
+        this.currentUtterance = null;
+        return;
+      }
+      // 其他错误：跳过当前句，继续播下一句
+      console.warn('[VoiceChat] TTS error:', e.error);
+      this.currentUtterance = null;
+      this._playNextInQueue();
+    };
+
+    this.currentUtterance = utt;
+    window.speechSynthesis.speak(utt);
+  }
+
+  _pickVoice() {
+    const voices = window.speechSynthesis.getVoices();
+    // 优先：包含 "Zhiyu"（Edge/Windows 中文女声）或 "Chinese" 且 female
+    let best = voices.find(v => v.lang.startsWith('zh') && v.name.includes('Zhiyu'));
+    if (!best) best = voices.find(v => v.lang.startsWith('zh-CN') && v.name.toLowerCase().includes('female'));
+    if (!best) best = voices.find(v => v.lang.startsWith('zh-CN'));
+    if (!best) best = voices.find(v => v.lang.startsWith('zh'));
+    return best || voices[0];
+  }
+
+  // ---------- 打断 ----------
+
+  /** 中断当前 SSE 网络请求 */
+  _cancelSSE() {
+    if (this.pendingSSE) {
+      this.pendingSSE.abort();
+      this.pendingSSE = null;
+    }
+  }
+
+  /** 取消所有正在播放和排队的 TTS */
+  _cancelAllSpeech() {
+    window.speechSynthesis.cancel();
+    this.utteranceQueue = [];
+    this.currentUtterance = null;
+    this.speaking = false;
+    ui.voiceToggle.classList.remove('speaking');
+  }
+
+  // ---------- 状态显示 ----------
+
+  _setStatus(msg, cls) {
+    ui.voiceStatus.textContent = msg;
+    ui.voiceStatus.className = 'voice-status ' + (cls || '');
+  }
+}
+
+// 全局单例
+let voiceChat = null;
+5.3 初始化与事件绑定（在现有事件绑定区域末尾追加）
+在 interview.js 末尾（ui.askText.addEventListener(...) 之后，约第 865 行后）追加：
+
+js
+// ---------- 语音对话初始化 ----------
+function initVoiceChat() {
+  voiceChat = new VoiceChat();
+  const sup = voiceChat.checkSupport();
+  if (!sup.recognition || !sup.synthesis) {
+    // 浏览器不支持，语音按钮变灰并提示
+    ui.voiceToggle.disabled = true;
+    ui.voiceToggle.title = '当前浏览器不支持语音功能（需 Chrome 或 Edge）';
+    voiceChat._setStatus('浏览器不支持语音功能', 'error');
+    return;
+  }
+  // 预加载语音列表（某些浏览器异步加载）
+  window.speechSynthesis.onvoiceschanged = () => {
+    window.speechSynthesis.getVoices();
+  };
+  window.speechSynthesis.getVoices();
+
+  ui.voiceToggle.addEventListener('click', () => voiceChat.toggle());
+
+  // 键盘快捷键：Ctrl+Shift+V 切换语音对话
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'v' && e.ctrlKey && e.shiftKey) {
+      e.preventDefault();
+      voiceChat.toggle();
+    }
+  });
+}
+
+// 页面加载后初始化
+initVoiceChat();
+六、Step 4 —— Tab 切换时自动暂停语音监听
+当用户切换到"面试题"或"长期记忆"Tab 时，需要暂停语音监听（避免在其他 Tab 误触发语音识别）。
+
+找到 interview.js 中现有的 Tab 切换逻辑（tab.addEventListener('click', ...) 附近），在切换回调中增加判断：
+
+js
+// 在 tab 切换回调中增加：离开"问我"Tab 时自动暂停语音
+// 找到现有的 tab click 绑定，在内部追加以下逻辑：
+
+if (tabName !== 'ask' && voiceChat && voiceChat.active) {
+  // 切换到非「问我」Tab 时，暂停语音但不关闭（切回时自动恢复）
+  voiceChat._stopListening();
+}
+if (tabName === 'ask' && voiceChat && voiceChat.active) {
+  // 切回「问我」Tab 时恢复监听
+  setTimeout(() => voiceChat._startListening(), 200);
+}
+七、Step 5 —— 完整交互流程验证
+7.1 正常对话流程
+步骤	用户操作	系统行为	验证点
+1	点击 "语音对话" 按钮	按钮变橙色 + pulse 动画，状态提示"正在聆听..."	voice-btn.active + listening 类存在
+2	对着麦克风说话（如"自我介绍应该怎么回答"）	voice-interim 区实时显示中间识别结果，定稿后自动清空	voice-interim 文本随语音实时更新
+3	静默约 1 秒（SpeechRecognition 自动定稿）	用户消息出现在 #askLog，AI 气泡显示"思考中..."，状态变为"AI 正在生成回答..."	ask-msg.me + ask-msg.ai 新增
+4	LLM 流式返回	AI 气泡逐字填充，同时 TTS 每攒够一句就朗读一句	ask-body 文本增长 + 扬声器听到语音
+5	AI 回答结束	状态恢复"正在聆听..."，语音按钮 pulse 动画恢复	voice-status 文字变为"正在聆听..."
+7.2 打断流程
+步骤	用户操作	系统行为	验证点
+1	AI 正在朗读回答中	voice-btn.speaking 类存在，状态"AI 正在朗读回答..."	扬声器有语音输出
+2	用户再次说话	speechSynthesis.cancel() 立即停止朗读，pendingSSE.abort() 中断网络请求，新语音定稿后发新请求	朗读戛然而止，新对话开始
+7.3 边界情况
+场景	预期行为
+语音模式下用户手动在 #askText 输入框打字并 Ctrl+Enter 发送	正常走文字发送，TTS 仍朗读回答（语音模式未关闭）
+AI 回答生成过程中用户点"关闭语音"	_cancelSSE() 中断网络请求，_cancelAllSpeech() 停止朗读，按钮复原
+面试题生成过程中开启语音对话	正常（freeAsking 锁与 running 锁独立，互不影响）
+Chrome 隐身模式 / HTTP 页面	语音功能不可用（Chrome 要求 HTTPS 或 localhost 才能使用麦克风），按钮灰色禁用
+浏览器不支持 SpeechRecognition	initVoiceChat 中检测到后禁用按钮并提示
+八、浏览器兼容性
+浏览器	SpeechRecognition	SpeechSynthesis	备注
+Chrome 87+	完整支持	完整支持	推荐使用
+Edge 87+	完整支持	完整支持	推荐使用，中文 TTS 有微软自然语音
+Firefox	不支持	完整支持	语音功能不可用（降级仅文字聊天）
+Safari 14+	部分支持（需 webkit 前缀）	完整支持	未测试
+重要：SpeechRecognition 在非 HTTPS / localhost 环境下不可用（浏览器安全策略）。本项目的 127.0.0.1:5090 属于 localhost，满足条件。
+
+九、文件改动汇总
+文件	新增行数（约）	改动类型
+interview.html	+7 行	新增 #voiceBar 控制栏
+style.css	+90 行	新增语音 UI 样式（按钮动效、状态、波纹动画）
+interview.js	+220 行	新增 VoiceChat 类 + initVoiceChat 初始化
+不改动文件：app.py、interview.py、prompt_interview.py、agents.py 等后端文件零改动。
+

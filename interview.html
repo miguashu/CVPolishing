@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>面试模拟 · JD 匹配简历优化器</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">面试模拟</div>
+    <div class="sub">基于优化后简历生成面试题与通俗答案 · 长期记忆 · 随时追问</div>
+    <nav class="nav">
+      <a href="/" class="nav-link">简历优化</a>
+      <a href="/interview" class="nav-link active">面试模拟</a>
+      <a href="/jd-resume" class="nav-link">JD 生成经历</a>
+      <a href="/prompts" class="nav-link">提示词配置</a>
+      <a href="/flow" class="nav-link">流程可视化</a>
+      <a href="/admin" class="nav-link" id="navAdmin">后台系统</a>
+    </nav>
+  </header>
+
+  <main class="layout">
+    <!-- 左侧：输入 -->
+    <section class="panel-input">
+      <div class="field">
+        <label>目标岗位 JD</label>
+        <textarea id="jd" placeholder="粘贴目标岗位 JD（进入本页会自动加载简历优化页保存的 JD）"></textarea>
+      </div>
+      <div class="field">
+        <label>你的简历（优化后）</label>
+        <textarea id="resume" placeholder="进入本页会自动加载简历优化页保存的简历；也可手动粘贴。"></textarea>
+      </div>
+      <!-- 简历优化入口：在同一界面直接优化，结果回填并写回后端，供「生成面试题」「问我」复用 -->
+      <div class="optimize-inline">
+        <div class="optimize-inline-title">简历优化（与首页同一引擎）</div>
+        <div class="optimize-inline-row">
+          <select id="optVersion" class="num-input">
+            <option value="标准优化">标准优化</option>
+            <option value="进阶强化">进阶强化</option>
+            <option value="精简版">精简版</option>
+          </select>
+          <button id="optRun" class="btn-mini accent">优化简历</button>
+        </div>
+        <div id="optStatus" class="status-mini"></div>
+      </div>
+      <div class="options">
+        <div class="opt">
+          <label for="count">每批题数</label>
+          <input type="number" id="count" min="1" max="20" value="8">
+        </div>
+        <div class="opt">
+          <label class="checkbox"><input type="checkbox" id="autoSave" checked> 生成后自动存入长期记忆</label>
+        </div>
+        <div class="opt">
+          <label class="checkbox"><input type="checkbox" id="genSearch" checked> 联网检索最新资料辅助出题</label>
+        </div>
+      </div>
+      <button id="gen" class="btn-primary">生成面试题</button>
+      <button id="more" class="btn-primary ghost">增加更多面试题</button>
+      <div id="status" class="status"></div>
+      <div class="progress" id="progress"></div>
+    </section>
+
+    <!-- 右侧：输出 -->
+    <section class="panel-output">
+      <div class="tabs">
+        <button class="tab active" data-tab="qa">面试题</button>
+        <button class="tab" data-tab="memory">长期记忆</button>
+        <button class="tab" data-tab="ask">问我</button>
+      </div>
+
+      <!-- 面试题 -->
+      <div class="tabpanel active" id="tab-qa">
+        <div class="qa-add">
+          <div class="qa-add-title">手动添加面试题</div>
+          <input type="text" id="addQ" class="qa-add-q" placeholder="输入你想加的面试题，例如：你最大的缺点是什么？">
+          <textarea id="addA" class="qa-add-a" placeholder="参考答案（可留空，点击「AI 生成答案」自动生成）"></textarea>
+          <div class="qa-add-foot">
+            <button id="genAnsBtn" class="btn-mini">AI 生成答案</button>
+            <button id="addBtn" class="btn-mini accent">添加题目</button>
+          </div>
+        </div>
+        <div id="qaList" class="qa-list"><div class="empty">点击「生成面试题」开始，题目会显示在这里，可编辑、保存到记忆、或追问。</div></div>
+      </div>
+
+      <!-- 长期记忆 -->
+      <div class="tabpanel" id="tab-memory">
+        <div class="mem-new">
+          <div class="mem-new-title">新增问答（AI 自动生成答案）</div>
+          <div class="mem-new-row">
+            <input type="text" id="memNewQ" class="mem-new-q" placeholder="输入问题，例如：如何回答『你的核心竞争力是什么』？">
+            <button id="memGenAns" class="btn-mini accent">AI 生成答案</button>
+          </div>
+          <textarea id="memNewA" class="mem-new-a" placeholder="AI 生成的答案会显示在这里，可编辑后再保存到记忆。"></textarea>
+          <div class="mem-new-foot">
+            <span id="memNewStatus" class="status"></span>
+            <button id="memAddSave" class="btn-mini">保存到记忆</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button id="importJsonBtn" class="btn-mini accent">导入 JSON</button>
+          <button id="importMdBtn" class="btn-mini accent">导入 MD</button>
+          <input type="file" id="importJson" accept=".json" hidden>
+          <input type="file" id="importMd" accept=".md,.markdown,.txt" hidden>
+          <button id="refreshMem" class="btn-mini">刷新</button>
+          <button id="exportJson" class="btn-mini">导出 JSON</button>
+          <button id="exportMd" class="btn-mini">导出 Markdown</button>
+          <button id="clearMem" class="btn-mini danger">清空记忆</button>
+          <input type="text" id="memSearch" class="mem-search" placeholder="搜索题目 / 答案…">
+        </div>
+        <div id="memList" class="mem-list"></div>
+      </div>
+
+      <!-- 问我 -->
+      <div class="tabpanel" id="tab-ask">
+        <div class="file-import">
+          <div class="file-import-head">
+            <span class="file-import-title">文本文件导入长期记忆</span>
+            <span class="file-import-tip">上传 .txt 文件，AI 解析内容并自动整理为问答条目入库</span>
+          </div>
+          <div class="file-import-row">
+            <input type="file" id="fileInput" accept=".txt,text/plain" hidden>
+            <button id="filePick" class="btn-mini">选择 TXT 文件</button>
+            <span id="fileName" class="file-name"></span>
+            <button id="fileParse" class="btn-mini accent" disabled>解析并导入</button>
+          </div>
+          <div id="fileStatus" class="file-status"></div>
+        </div>
+        <!-- ? ?????????? -->
+        <div id="voiceBar" class="voice-bar">
+          <button id="voiceToggle" class="voice-btn" title="??????">
+            <span class="voice-icon">&#x1F399;</span>
+            <span class="voice-label">????</span>
+          </button>
+          <span id="voiceStatus" class="voice-status"></span>
+        </div>
+        <!-- ? ???? -->
+        <div id="askLog" class="ask-log"></div>
+        <div class="ask-input">
+          <textarea id="askText" placeholder="针对简历 / 岗位 / 面试题任意提问，大模型会结合你的简历给出通俗答案；回答后会自动精简并存入长期记忆。"></textarea>
+          <div class="ask-input-row">
+            <label class="checkbox"><input type="checkbox" id="askSave" checked> 回答后自动精简并存入长期记忆</label>
+            <button id="askSend" class="btn-mini accent">发送</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 长期记忆详情弹窗 -->
+  <div id="memModal" class="mem-modal-overlay" hidden>
+    <div class="mem-modal">
+      <div class="mem-modal-head">
+        <div class="mem-modal-title" id="memModalTitle"></div>
+        <button class="mem-modal-close" id="memModalClose">关闭</button>
+      </div>
+      <div class="mem-modal-sec">答案</div>
+      <textarea id="memModalText" class="mem-modal-text"></textarea>
+      <div class="mem-modal-sec">答疑补充</div>
+      <textarea id="memModalExtra" class="mem-modal-text extra" placeholder="该条记忆暂无答疑补充，可在此直接补写。"></textarea>
+      <div class="mem-modal-foot">
+        <span class="mem-modal-hint">Ctrl+Enter 保存 · Esc 关闭</span>
+        <button class="btn-mini accent" id="memModalSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/user.js"></script>
+  <script src="/static/interview.js"></script>
+  <script src="/static/zoom.js"></script>
+</body>
+</html>

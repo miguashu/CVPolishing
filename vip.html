@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>会员中心 - CVPolishing</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <style>
+    .vip-wrap { max-width: 760px; margin: 0 auto; padding: 28px 16px 60px; }
+    .vip-hero {
+      position: relative; overflow: hidden;
+      border-radius: 18px; padding: 30px 28px;
+      background: linear-gradient(135deg, #1a2748, #16213e);
+      border: 1px solid rgba(212,175,55,.35);
+      box-shadow: 0 20px 50px rgba(0,0,0,.4);
+    }
+    .vip-hero::after {
+      content: ""; position: absolute; right: -60px; top: -60px;
+      width: 220px; height: 220px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(212,175,55,.35), transparent 70%);
+      filter: blur(20px);
+    }
+    .vip-hero .tag { font-size: 12px; letter-spacing: 2px; color: #d4af37; font-weight: 700; }
+    .vip-hero h1 { margin: 8px 0 4px; font-size: 24px; }
+    .vip-hero p { color: var(--muted); font-size: 14px; margin: 0; }
+    .vip-status { margin-top: 14px; font-size: 13px; }
+    .vip-status .on { color: #d4af37; font-weight: 700; }
+    .vip-status .off { color: var(--muted); }
+
+    .vip-card {
+      margin-top: 22px; background: var(--panel); border: 1px solid var(--line);
+      border-radius: 14px; padding: 22px;
+    }
+    .vip-card h2 { margin: 0 0 14px; font-size: 17px; }
+    .benefit { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; font-size: 14px; line-height: 1.6; }
+    .benefit .dot { color: #d4af37; margin-top: 2px; }
+
+    .vip-activate { margin-top: 22px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+    .vip-activate h2 { margin: 0 0 6px; font-size: 17px; }
+    .vip-activate .hint { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+    .vip-input-row { display: flex; gap: 10px; }
+    .vip-input-row input {
+      flex: 1; padding: 12px 14px; background: var(--panel2); color: var(--text);
+      border: 1px solid var(--line); border-radius: 10px; font-size: 14px; outline: none;
+    }
+    .vip-input-row input:focus { border-color: var(--accent); }
+    .vip-btn {
+      padding: 12px 22px; border: none; border-radius: 10px; color: #1a1a1a; font-weight: 700; cursor: pointer;
+      background: linear-gradient(90deg, #f5d77a, #d4af37);
+    }
+    .vip-btn:hover { opacity: .92; }
+    .vip-btn:disabled { opacity: .6; cursor: not-allowed; }
+    .vip-msg { min-height: 18px; margin-top: 12px; font-size: 13px; }
+    .vip-msg.ok { color: var(--accent2); }
+    .vip-msg.err { color: var(--danger); }
+
+    .vip-buy { margin-top: 22px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+    .vip-buy h2 { margin: 0 0 6px; font-size: 17px; }
+    .vip-buy .hint { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">会员中心</div>
+    <nav class="nav">
+      <a href="/" class="nav-link">简历优化</a>
+      <a href="/interview" class="nav-link">面试模拟</a>
+      <a href="/jd-resume" class="nav-link">JD 生成经历</a>
+      <a href="/vip" class="nav-link active">会员中心</a>
+      <a href="/prompts" class="nav-link">提示词配置</a>
+      <a href="/flow" class="nav-link">流程可视化</a>
+      <a href="/admin" class="nav-link" id="navAdmin">后台系统</a>
+    </nav>
+  </header>
+
+  <div class="vip-wrap">
+    <div class="vip-hero">
+      <div class="tag">CVPolishing VIP</div>
+      <h1>解锁全部 AI 能力</h1>
+      <p>会员享智能迭代优化、无限面试生成与优先通道</p>
+      <div class="vip-status" id="vipStatus"></div>
+    </div>
+
+    <div class="vip-card">
+      <h2>会员专属权益</h2>
+      <div id="benefitList"></div>
+    </div>
+
+    <div class="vip-activate" id="activateBox">
+      <h2>激活码开通</h2>
+      <div class="hint">输入专属邀请码或会员激活码即可开通（可限时/绑定账号，用过即失效）。</div>
+      <div class="vip-input-row">
+        <input id="vipCode" type="text" placeholder="请输入激活码" autocomplete="off" />
+        <button class="vip-btn" id="vipActivateBtn">立即开通</button>
+      </div>
+      <div class="vip-msg" id="vipMsg"></div>
+    </div>
+
+    <div class="vip-buy" id="buyBox">
+      <h2>在线购买会员</h2>
+      <div class="hint">使用支付宝支付，付款后自动开通。请在手机浏览器中完成支付。</div>
+      <button class="vip-btn" id="buyBtn">立即购买会员</button>
+      <div class="vip-msg" id="buyMsg"></div>
+    </div>
+  </div>
+
+  <!-- 购买弹窗：确认下单 -> 跳转支付 -->
+  <div id="payModal" class="modal-mask" style="display:none;">
+    <div class="modal">
+      <div class="modal-head">
+        <span>购买会员</span>
+        <button class="modal-close" id="payClose">×</button>
+      </div>
+      <div id="payProducts" class="pay-products"></div>
+      <div id="payArea" class="pay-area" style="display:none;">
+        <div class="pay-tip">正在跳转支付，请在手机浏览器中完成支付……</div>
+        <a id="payUrl" class="vip-btn" target="_blank" rel="noopener">打开支付</a>
+        <div class="vip-msg ok" id="payStatus">支付状态：等待付款（订单已创建）</div>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .modal-mask {
+      position: fixed; inset: 0; background: rgba(0,0,0,.55);
+      display: flex; align-items: center; justify-content: center; z-index: 50;
+    }
+    .modal {
+      width: min(440px, 92vw); background: var(--panel); border: 1px solid var(--line);
+      border-radius: 16px; padding: 20px; box-shadow: 0 24px 60px rgba(0,0,0,.5);
+    }
+    .modal-head { display: flex; justify-content: space-between; align-items: center; font-size: 16px; font-weight: 700; }
+    .modal-close { background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer; line-height: 1; }
+    .pay-products { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+    .pay-product {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer;
+    }
+    .pay-product:hover { border-color: var(--accent); }
+    .pay-product .pname { font-size: 15px; font-weight: 600; }
+    .pay-product .pdays { color: var(--muted); font-size: 12px; }
+    .pay-product .pprice { color: #d4af37; font-weight: 700; font-size: 16px; }
+    .pay-area { margin-top: 18px; text-align: center; }
+    .pay-area .pay-tip { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+    .pay-area a.vip-btn { display: inline-block; text-decoration: none; }
+  </style>
+
+  <script src="/static/user.js"></script>
+  <script src="/static/vip.js"></script>
+</body>
+</html>

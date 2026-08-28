@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>用户管理 - CVPolishing 后台</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <style>
+    .admin-table { width: 100%; border-collapse: collapse; margin-top: 14px; }
+    .admin-table th, .admin-table td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; font-size: 13px; }
+    .admin-form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; align-items: flex-end; }
+    .admin-form .field { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); }
+    .admin-form input, .admin-form select { margin-top: 4px; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .back-link { font-size: 13px; }
+    .section { margin-top: 32px; }
+    .section h3 { margin: 0 0 6px; font-size: 16px; }
+    .code-box { font-family: monospace; background: var(--panel2); padding: 4px 8px; border-radius: 6px; }
+    .invite-table th, .invite-table td { font-size: 12px; }
+    .copy-btn { cursor: pointer; color: var(--accent); }
+    .del-btn { cursor: pointer; color: var(--danger); }
+  </style>
+</head>
+<body>
+  <div class="container" style="max-width: 880px;">
+    <div class="topbar" style="display:flex; justify-content:space-between; align-items:center;">
+      <h2 style="margin:0;">用户管理（后台）</h2>
+      <a class="back-link" href="/">返回应用</a>
+    </div>
+    <p class="muted">仅管理员可访问。账号密码以密文存储；简历与长期记忆按用户隔离。</p>
+
+    <form id="addUserForm" class="admin-form">
+      <div class="field">账号<input id="au_username" type="text" placeholder="字母/数字/下划线" /></div>
+      <div class="field">密码<input id="au_password" type="text" placeholder="初始密码" /></div>
+      <div class="field">角色
+        <select id="au_role">
+          <option value="user">普通用户</option>
+          <option value="admin">管理员</option>
+        </select>
+      </div>
+      <button type="submit" class="btn">新增用户</button>
+      <span id="addMsg" class="muted"></span>
+    </form>
+
+    <table class="admin-table">
+      <thead>
+        <tr><th>ID</th><th>账号</th><th>角色</th><th>会员</th><th>创建时间</th><th>操作</th></tr>
+      </thead>
+      <tbody id="userRows"></tbody>
+    </table>
+
+    <div class="section" id="inviteSection">
+      <h3>专属邀请码（每个用户不同 · 用过即失效）</h3>
+      <p class="muted">生成专属激活码分发给用户，可指定绑定账号、会员天数与有效期；用户使用后自动失效。</p>
+      <form id="inviteForm" class="admin-form">
+        <div class="field">绑定账号（留空=任意用户）<input id="iv_target" type="text" placeholder="如 admin" /></div>
+        <div class="field">会员天数（0=永久）<input id="iv_days" type="number" min="0" value="0" /></div>
+        <div class="field">有效期小时（0=不过期）<input id="iv_hours" type="number" min="0" value="0" /></div>
+        <button type="submit" class="btn">生成邀请码</button>
+        <span id="inviteMsg" class="muted"></span>
+      </form>
+      <table class="admin-table invite-table">
+        <thead>
+          <tr><th>邀请码</th><th>绑定</th><th>天数</th><th>有效期至</th><th>使用人</th><th>操作</th></tr>
+        </thead>
+        <tbody id="inviteRows"></tbody>
+      </table>
+    </div>
+  </div>
+  <script src="/static/admin.js"></script>
+</body>
+</html>

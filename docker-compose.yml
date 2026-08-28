@@ -1,0 +1,47 @@
+# 一键部署 CVPolishing（应用 + MySQL）
+# 用法：
+#   docker compose up -d
+# 访问 http://localhost:5090  （默认账号 admin / admin123!）
+#
+# 如需自定义配置，复制 .env.example 为 .env 后修改，docker compose 会自动加载。
+
+services:
+  db:
+    image: mysql:5.7
+    container_name: cvpolishing-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root}
+      MYSQL_DATABASE: ${DB_NAME:-cvpolishing}
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${DB_PASSWORD:-qunima213!}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    container_name: cvpolishing-app
+    restart: unless-stopped
+    # 等待数据库健康后再启动
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # 容器内连接数据库使用服务名 db
+      DB_HOST: db
+      DB_PORT: 3306
+    ports:
+      - "${PORT:-5090}:5090"
+    volumes:
+      - ./data:/app/data
+
+volumes:
+  mysql_data:

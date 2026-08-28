@@ -1,0 +1,103 @@
+@echo off
+chcp 65001 >nul
+cd /d %~dp0
+echo ============================================
+echo   CVPolishing 简历优化系统（本地服务 + 公网隧道）
+echo ============================================
+echo.
+echo 正在启动，请稍候...
+
+rem ---------- 1. 停止占用 5090 的旧实例 ----------
+for /f "tokens=5" %%p in ('netstat -ano -p tcp ^| findstr ":5090 " ^| findstr "LISTENING"') do (
+  echo   停止占用 5090 的旧实例 PID %%p ...
+  taskkill /PID %%p /F >nul 2>nul
+)
+timeout /t 1 /nobreak >nul
+
+rem ---------- 2. 默认弱口令处理：首次运行生成随机强口令并重置 admin ----------
+set "ADMIN_PWD_FILE=public_admin.txt"
+set "ADMIN_PWD="
+if exist "%ADMIN_PWD_FILE%" goto :admin_ready
+for /f %%v in ('python -c "import db; print(1 if db.verify_password('admin', 'admin123!')[0] else 0)"') do set "IS_DEFAULT=%%v"
+if "%IS_DEFAULT%"=="1" goto :reset_admin
+if "%IS_DEFAULT%"=="0" (
+  echo [提示] admin 已使用非默认口令，跳过口令重置。
+  goto :admin_ready
+)
+echo [提示] 无法判断 admin 口令状态（MySQL 未就绪？），跳过口令重置。
+goto :admin_ready
+
+:reset_admin
+echo 检测到 admin 仍为默认弱口令，正在生成随机强口令...
+for /f "usebackq delims=" %%p in (`python -c "import db,secrets,string,sys; c=string.ascii_letters+string.digits+'@#-_'; p=''.join(secrets.choice(c) for _ in range(16)); db.reset_password('admin', p); ok,_=db.verify_password('admin', p); sys.exit(1) if not ok else print(p)"`) do set "ADMIN_PWD=%%p"
+if not defined ADMIN_PWD (
+  echo [提示] admin 口令重置失败（admin 账号可能不存在），跳过。
+  goto :admin_ready
+)
+>"%ADMIN_PWD_FILE%" echo %ADMIN_PWD%
+echo 已生成新口令并保存到 %ADMIN_PWD_FILE%（如需重新生成，删除该文件后重跑）。
+
+:admin_ready
+if not defined ADMIN_PWD (
+  if exist "%ADMIN_PWD_FILE%" set /p ADMIN_PWD=<"%ADMIN_PWD_FILE%"
+)
+
+echo.
+rem ---------- 检查并启动 Qdrant（长期记忆向量库）----------
+echo 检查 Qdrant（长期记忆向量库）...
+powershell -NoProfile -Command "try { Invoke-RestMethod -Uri 'http://localhost:6333' -TimeoutSec 3 | Out-Null; Write-Output 'up' } catch { Write-Output 'down' }" | findstr /i "up" >nul
+if errorlevel 1 (
+  if exist "D:\qdrant\qdrant.exe" (
+    echo 启动 Qdrant（D:\qdrant\qdrant.exe）...
+    start "Qdrant" /D "D:\qdrant" "D:\qdrant\qdrant.exe"
+    timeout /t 5 /nobreak >nul
+  ) else (
+    echo [提示] 未检测到 Qdrant 服务（localhost:6333 未响应），且未找到 D:\qdrant\qdrant.exe。
+    echo        长期记忆的语义检索将不可用。可下载 Windows 版解压到 D:\qdrant：
+    echo        https://github.com/qdrant/qdrant/releases
+  )
+)
+echo [1/2] 启动本地服务...
+start "CVPolishing app.py" python app.py
+timeout /t 3 /nobreak >nul
+for /f "tokens=5" %%p in ('netstat -ano -p tcp ^| findstr ":5090 " ^| findstr "LISTENING"') do set "APP_PID=%%p"
+
+echo.
+echo [2/2] 启动 Cloudflare 临时隧道（公网访问）...
+echo 公网地址就在下面，看到 https://xxxx.trycloudflare.com 后发给对方即可。
+echo 关闭隧道：Ctrl+C（若提示 Terminate batch job，请按 N 自动关闭服务）。
+echo.
+
+rem ---------- 3. 前台运行 cloudflared，URL 直接显示在本窗口 ----------
+set "TUNNEL_CMD="
+if exist "%~dp0cloudflared.exe" (
+  set "TUNNEL_CMD=%~dp0cloudflared.exe"
+) else (
+  where cloudflared >nul 2>nul
+  if not errorlevel 1 (
+    set "TUNNEL_CMD=cloudflared"
+  ) else (
+    echo 未找到 cloudflared，正在下载到项目根目录（约 60MB，请稍候）...
+    curl -L --fail --connect-timeout 20 -o "%~dp0cloudflared.exe" "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+    if errorlevel 1 (
+      echo.
+      echo [错误] cloudflared 下载失败，请手动下载并放到项目根目录后重跑：
+      echo        https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe
+      echo 本地服务仍可用： http://127.0.0.1:5090
+      if defined ADMIN_PWD echo 管理员: admin / %ADMIN_PWD%
+      pause
+      exit /b 1
+    )
+    set "TUNNEL_CMD=%~dp0cloudflared.exe"
+  )
+)
+
+%TUNNEL_CMD% tunnel --url http://127.0.0.1:5090
+
+echo.
+echo 隧道已关闭，正在停止本地服务...
+if defined APP_PID taskkill /PID %APP_PID% /F >nul 2>nul
+echo 本地服务已停止。
+echo.
+echo 本地地址: http://127.0.0.1:5090（已停止）
+pause

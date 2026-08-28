@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent 提示词配置</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">JD 匹配简历优化器</div>
+    <div class="sub">Agent 提示词可视化配置 · 编辑即生效</div>
+    <nav class="nav">
+      <a href="/" class="nav-link">简历优化</a>
+      <a href="/interview" class="nav-link">面试模拟</a>
+      <a href="/prompts" class="nav-link active">提示词配置</a>
+      <a href="/flow" class="nav-link">流程可视化</a>
+      <a href="/admin" class="nav-link" id="navAdmin">后台系统</a>
+    </nav>
+  </header>
+
+  <main class="prompt-layout" id="promptLayout">
+    <div class="prompt-head">
+      <div>
+        <h1>Agent 提示词配置</h1>
+        <p class="prompt-tip">可视化编辑各智能体的系统提示词，点击保存后立即生效（无需重启服务）。「恢复默认」会将内容还原为内置默认值。</p>
+      </div>
+      <div class="prompt-actions">
+        <button id="saveAll" class="btn-primary">保存全部</button>
+        <button id="resetAll" class="btn-mini">全部恢复默认</button>
+        <span id="saveStatus" class="status"></span>
+      </div>
+    </div>
+
+    <div id="promptList" class="prompt-list">
+      <div class="empty">加载中…</div>
+    </div>
+  </main>
+
+  <div id="deniedBox" class="denied-box" style="display:none;">
+    <div class="denied-card">
+      <div class="denied-icon">🔒</div>
+      <h2>无访问权限</h2>
+      <p>提示词配置（问答系统设置）仅<strong>管理员</strong>可查看与修改。<br>如需权限，请联系系统管理员。</p>
+      <a href="/" class="btn-primary">返回首页</a>
+    </div>
+  </div>
+
+  <script src="/static/user.js"></script>
+  <script src="/static/prompts.js"></script>
+  <script src="/static/zoom.js"></script>
+</body>
+</html>

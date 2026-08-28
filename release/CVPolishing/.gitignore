@@ -1,0 +1,10 @@
+# 密钥与本地配置
+.env
+
+# 日志
+server.log
+server.err
+
+# Python 缓存
+__pycache__/
+*.pyc

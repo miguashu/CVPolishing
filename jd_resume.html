@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JD 生成经历 · JD 匹配简历优化器</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">JD 生成经历</div>
+    <div class="sub">粘贴目标岗位 JD，AI 反推生成匹配的工作经历条目 · 可编辑 · 可存入简历</div>
+    <nav class="nav">
+      <a href="/" class="nav-link">简历优化</a>
+      <a href="/interview" class="nav-link">面试模拟</a>
+      <a href="/jd-resume" class="nav-link active">JD 生成经历</a>
+      <a href="/prompts" class="nav-link">提示词配置</a>
+      <a href="/flow" class="nav-link">流程可视化</a>
+      <a href="/admin" class="nav-link" id="navAdmin">后台系统</a>
+    </nav>
+  </header>
+
+  <main class="layout">
+    <!-- 左侧：输入 -->
+    <section class="panel-input">
+      <div class="field">
+        <label>目标岗位 JD<span class="req">*</span></label>
+        <textarea id="jd" placeholder="粘贴职位 JD，AI 将据此生成匹配的工作经历"></textarea>
+      </div>
+      <div class="jd-ocr">
+        <label>或上传 JD 图片（AI 识别文字）</label>
+        <div class="ocr-row">
+          <input type="file" id="jdImage" accept="image/*">
+          <button id="ocrBtn" class="btn-mini">识别图片</button>
+        </div>
+        <div id="ocrStatus" class="status-mini"></div>
+      </div>
+      <div class="field">
+        <label class="checkbox"><input type="checkbox" id="useResume" checked> 参考我的简历（自动加载，AI 优先复用你的技术栈与项目背景）</label>
+        <textarea id="refResume" placeholder="加载后展示你保存的简历，可手动修改；取消勾选则按 JD 独立生成。"></textarea>
+      </div>
+      <div class="options">
+        <div class="opt">
+          <label for="count">生成条数</label>
+          <select id="count">
+            <option value="2">2 条</option>
+            <option value="3" selected>3 条</option>
+            <option value="4">4 条</option>
+          </select>
+        </div>
+        <div class="opt">
+          <label for="targetRole">目标岗位（可选）</label>
+          <input type="text" id="targetRole" class="num-input" placeholder="如：后端开发工程师">
+        </div>
+      </div>
+      <button id="gen" class="btn-primary">生成工作经历</button>
+      <div id="status" class="status"></div>
+      <div class="progress" id="progress"></div>
+    </section>
+
+    <!-- 右侧：输出 -->
+    <section class="panel-output">
+      <div class="jd-kw" id="jdKw" hidden>
+        <div class="jd-kw-head">AI 解析出的 JD 关键词</div>
+        <div class="jd-kw-role" id="jdKwRole"></div>
+        <div class="jd-kw-chips" id="jdKwChips"></div>
+      </div>
+      <div class="exp-toolbar">
+        <button id="copyAll" class="btn-mini">一键复制全部</button>
+        <button id="undoSave" class="btn-mini danger" disabled>撤销上次存入</button>
+        <span class="exp-tip">生成内容为 AI 建议模板，请核对真实经历后使用</span>
+      </div>
+      <div id="expList" class="exp-list"><div class="empty">填写左侧 JD 后点击「生成工作经历」，结果会显示在这里。</div></div>
+    </section>
+  </main>
+
+  <script src="/static/jd_resume.js"></script>
+</body>
+</html>
