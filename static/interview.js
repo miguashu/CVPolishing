@@ -47,6 +47,17 @@ const ui = {
   optVersion: $("#optVersion"),
   optRun: $("#optRun"),
   optStatus: $("#optStatus"),
+  // 简历文件上传解析
+  resumeFile: $("#resumeFile"),
+  resumeFilePick: $("#resumeFilePick"),
+  resumeFileName: $("#resumeFileName"),
+  resumeFileParse: $("#resumeFileParse"),
+  resumeFileStatus: $("#resumeFileStatus"),
+  // 按需修改简历
+  applyReq: $("#applyReq"),
+  applyRun: $("#applyRun"),
+  applyReset: $("#applyReset"),
+  applyStatus: $("#applyStatus"),
   // TXT 文件导入长期记忆
   fileInput: $("#fileInput"),
   filePick: $("#filePick"),
@@ -1652,6 +1663,143 @@ ui.fileInput.addEventListener("change", () => {
   reader.readAsText(file, "utf-8");
 });
 ui.fileParse.addEventListener("click", parseFile);
+
+// ---------- 简历文件上传解析（PDF / Word / TXT / Markdown）----------
+let pendingResumeFile = null;   // 待解析的 File 对象
+
+function setResumeFileStatus(msg, isErr) {
+  ui.resumeFileStatus.textContent = msg;
+  ui.resumeFileStatus.classList.toggle("err", !!isErr);
+}
+
+ui.resumeFilePick.addEventListener("click", () => ui.resumeFile.click());
+ui.resumeFile.addEventListener("change", () => {
+  const file = ui.resumeFile.files[0];
+  if (!file) return;
+  pendingResumeFile = file;
+  ui.resumeFileName.textContent = file.name;
+  ui.resumeFileName.dataset.name = file.name;
+  ui.resumeFileParse.disabled = false;
+  setResumeFileStatus(`已选择文件（${(file.size / 1024).toFixed(0)} KB），点击「解析并填入简历」。`, false);
+});
+
+ui.resumeFileParse.addEventListener("click", async () => {
+  if (!pendingResumeFile) { setResumeFileStatus("请先选择文件。", true); return; }
+  const file = pendingResumeFile;
+  ui.resumeFileParse.disabled = true;
+  ui.resumeFileParse.textContent = "解析中…";
+  setResumeFileStatus("正在解析文件…", false);
+  try {
+    const fd = new FormData();
+    fd.append("file", file);
+    const resp = await fetch("/api/resume/parse", { method: "POST", body: fd });
+    const r = await resp.json();
+    if (!resp.ok) throw new Error(r.error || ("HTTP " + resp.status));
+    ui.resume.value = r.text;
+    originalResume = r.text;   // 以解析结果作为后续优化基准
+    setResumeFileStatus(`解析完成，已填入简历框（${r.text.length} 字）。可继续优化、按需修改或生成面试题。`, false);
+    await fetch("/api/resume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ original: r.text }),
+    });
+  } catch (e) {
+    setResumeFileStatus("解析失败：" + e.message, true);
+  } finally {
+    ui.resumeFileParse.disabled = false;
+    ui.resumeFileParse.textContent = "解析并填入简历";
+  }
+});
+
+// ---------- 按需修改简历（SSE 流式，复用 /api/resume/apply-change）----------
+let applying = false;          // 按需修改锁
+let lastApplyResume = "";      // 最近一次修改结果，供「回填」使用
+
+ui.applyRun.addEventListener("click", applyResumeChange);
+ui.applyReset.addEventListener("click", () => {
+  if (!lastApplyResume) return;
+  ui.resume.value = lastApplyResume;
+  ui.applyReset.hidden = true;
+  setApplyStatus("已将修改结果回填到简历框。", false);
+});
+
+function setApplyStatus(msg, isErr) {
+  ui.applyStatus.textContent = msg;
+  ui.applyStatus.style.color = isErr ? "#c0392b" : "";
+}
+
+async function applyResumeChange() {
+  if (applying) { alert("正在修改中，请稍候…"); return; }
+  const resume = ui.resume.value.trim();
+  const requirement = ui.applyReq.value.trim();
+  if (!resume) { alert("请先填写或上传简历。"); return; }
+  if (!requirement) { alert("请填写修改需求，例如：突出项目管理能力。"); return; }
+
+  applying = true;
+  ui.applyRun.disabled = true;
+  ui.applyRun.textContent = "修改中…";
+  setApplyStatus("正在按需求修改简历…");
+  ui.applyReset.hidden = true;
+  let buffer = "";
+
+  try {
+    const resp = await fetch("/api/resume/apply-change", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resume, requirement, jd: ui.jd.value.trim() }),
+    });
+    if (!resp.ok) {
+      const r = await resp.json().catch(() => ({}));
+      throw new Error(r.error || ("HTTP " + resp.status));
+    }
+    if (!resp.body || !resp.body.getReader) { throw new Error("当前浏览器不支持流式响应"); }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let partial = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      partial += decoder.decode(value, { stream: true });
+      const lines = partial.split("\n");
+      partial = lines.pop();
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t.startsWith("data:")) continue;
+        let ev;
+        try { ev = JSON.parse(t.slice(5).trim()); } catch (e) { continue; }
+        if (ev.type === "progress") {
+          setApplyStatus(ev.message || "处理中…");
+        } else if (ev.type === "delta") {
+          buffer += ev.text || "";
+        } else if (ev.type === "error") {
+          setApplyStatus(ev.message || "修改失败", true);
+          applying = false; ui.applyRun.disabled = false; ui.applyRun.textContent = "按需求修改";
+          return;
+        } else if (ev.type === "result") {
+          lastApplyResume = (ev.resume || "").trim();
+          if (lastApplyResume) {
+            ui.resume.value = lastApplyResume;
+            ui.applyReset.hidden = false;
+            const noteText = (ev.notes || "").trim()
+              ? "　修改说明：" + ev.notes.replace(/\n+/g, "；")
+              : "";
+            setApplyStatus("修改完成，已预览修改结果。如满意请点「回填修改结果」覆盖简历框；或直接生成面试题。" + noteText);
+          } else {
+            setApplyStatus("修改完成但内容为空，请重试。", true);
+          }
+        }
+      }
+    }
+    if (!buffer.trim()) setApplyStatus("未收到修改结果，请重试。", true);
+  } catch (e) {
+    setApplyStatus("修改失败：" + e.message, true);
+  } finally {
+    applying = false;
+    ui.applyRun.disabled = false;
+    ui.applyRun.textContent = "按需求修改";
+  }
+}
 
 // ---------- 初始化：加载当前用户在简历优化页保存的简历与 JD ----------
 (async function init() {

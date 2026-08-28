@@ -22,6 +22,8 @@ from score import score_stream
 from compare import compare_stream
 from interview import generate_interview_stream, answer_question_stream, generate_answer_stream, parse_file_stream
 from jd_resume import generate_experiences_stream
+from resume_file import parse_resume_file, ResumeParseError
+from resume_apply import apply_change_stream
 from memory import get_all, put, delete, clear, search, search_hybrid, rebuild_vectors
 from prompt_config import load_prompts, save_prompts, PROMPT_META, DEFAULT_PROMPTS
 
@@ -472,6 +474,45 @@ def api_resume_post():
     if append_work:
         resp["append_position"] = append_position
     return jsonify(resp)
+
+
+@app.route("/api/resume/parse", methods=["POST"])
+def api_resume_parse():
+    """上传简历文件（PDF / Word(docx) / TXT / Markdown），解析为纯文本返回。
+
+    前端「上传简历」按钮调用：multipart 表单字段 file。
+    """
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"error": "未收到文件"}), 400
+    data = f.read()
+    try:
+        text = parse_resume_file(f.filename, data)
+    except ResumeParseError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"文件解析失败：{e}"}), 500
+    if not text.strip():
+        return jsonify({"error": "未能从文件中提取到文本，请检查文件内容"}), 400
+    _record_question("resume_parse", "上传简历文件解析", f.filename)
+    return jsonify({"ok": True, "text": text, "filename": f.filename})
+
+
+@app.route("/api/resume/apply-change", methods=["POST"])
+def api_resume_apply_change():
+    """SSE 流式按需修改简历：接收 resume + requirement（修改需求）+ 可选 jd。"""
+    if not config.LLM_API_KEY:
+        return jsonify({"error": "未配置 LLM_API_KEY，无法修改简历"}), 400
+    data = _json_body()
+    resume = (data.get("resume") or "").strip()
+    requirement = (data.get("requirement") or "").strip()
+    jd = (data.get("jd") or "").strip()
+    if not resume:
+        return jsonify({"error": "请先填写或上传简历"}), 400
+    if not requirement:
+        return jsonify({"error": "请填写修改需求"}), 400
+    _record_question("resume_apply", "按需修改简历", requirement[:100])
+    return _sse(apply_change_stream(resume, requirement, jd))
 
 
 def _append_work_entries(resume_text, entries):

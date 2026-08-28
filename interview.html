@@ -44,6 +44,30 @@
         </div>
         <div id="optStatus" class="status-mini"></div>
       </div>
+      <!-- 简历文件上传：支持 PDF / Word / TXT / Markdown，解析后自动回填简历框 -->
+      <div class="file-import">
+        <div class="file-import-head">
+          <span class="file-import-title">上传简历文件</span>
+          <span class="file-import-tip">支持 PDF / Word(docx) / TXT / Markdown，解析后自动填入上方简历框</span>
+        </div>
+        <div class="file-import-row">
+          <input type="file" id="resumeFile" accept=".pdf,.docx,.txt,.md,.markdown" hidden>
+          <button id="resumeFilePick" class="btn-mini">选择文件</button>
+          <span id="resumeFileName" class="file-name"></span>
+          <button id="resumeFileParse" class="btn-mini accent" disabled>解析并填入简历</button>
+        </div>
+        <div id="resumeFileStatus" class="file-status"></div>
+      </div>
+      <!-- 按需修改简历：输入修改需求，AI 针对性修改并回填简历框 -->
+      <div class="optimize-inline">
+        <div class="optimize-inline-title">按需修改简历（AI 按你的要求改）</div>
+        <textarea id="applyReq" rows="2" placeholder="例如：突出项目管理能力；把技术栈按岗位相关性重排；精简到一页；补充量化成果…" class="qa-add-a" style="height:52px;margin-bottom:8px;"></textarea>
+        <div class="optimize-inline-row">
+          <button id="applyRun" class="btn-mini accent">按需求修改</button>
+          <button id="applyReset" class="btn-mini" hidden>回填修改结果</button>
+        </div>
+        <div id="applyStatus" class="status-mini"></div>
+      </div>
       <div class="options">
         <div class="opt">
           <label for="count">每批题数</label>

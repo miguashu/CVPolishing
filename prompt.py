@@ -136,6 +136,23 @@ def build_supervise_prompt(score, iteration, max_iter, notes, guidance):
 请严格按系统提示词输出 JSON：decision / safe / reason / risk。"""
 
 
+def build_apply_prompt(resume, requirement, jd=""):
+    """拼装按需修改简历的用户提示词：简历原文 + 用户修改需求 +（可选）目标 JD。"""
+    jd_block = ""
+    if jd and jd.strip():
+        jd_block = f"""
+
+# 相关目标岗位 JD（供修改时参考）
+{jd.strip()}"""
+    return f"""# 用户简历原文
+{resume.strip()}
+
+# 用户修改需求
+{requirement.strip()}{jd_block}
+
+请严格遵循系统提示词的修改规则与输出格式，输出「===修改后简历===」与「===修改说明===」两部分。"""
+
+
 def _score_to_json(score):
     """把评分字典安全序列化为 JSON 文本，供提示词内嵌。"""
     try:
